@@ -18,6 +18,7 @@ const (
 
 	stepEditInterval = "edit_interval" // editing a thread's interval (scratch: threadID)
 	stepEditProxy    = "edit_proxy"    // editing an account proxy (scratch: accountID)
+	stepEditCookies  = "edit_cookies"  // pasting Mipped session cookies (scratch: accountID)
 	stepEditSetting  = "edit_setting"  // editing a setting (scratch: settingKey)
 )
 
@@ -86,6 +87,8 @@ func (tb *Bot) onText(c tele.Context) error {
 		return tb.inputEditInterval(c, st)
 	case stepEditProxy:
 		return tb.inputEditProxy(c, st)
+	case stepEditCookies:
+		return tb.inputEditCookies(c, st)
 	case stepEditSetting:
 		return tb.inputEditSetting(c, st)
 	default:

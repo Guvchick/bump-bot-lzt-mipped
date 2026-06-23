@@ -17,15 +17,16 @@ import (
 
 // Callback unique identifiers. Must match `[-\w]+` (telebot's cbackRx).
 const (
-	uMenu     = "menu"
-	uAccounts = "accs"
-	uAccView  = "acc"
-	uAccAdd   = "accadd"
-	uAccForum = "accaddf"
-	uAccCheck = "accchk"
-	uAccDel   = "accdel"
-	uAccDelOK = "accdely"
-	uAccProxy = "accpx"
+	uMenu       = "menu"
+	uAccounts   = "accs"
+	uAccView    = "acc"
+	uAccAdd     = "accadd"
+	uAccForum   = "accaddf"
+	uAccCheck   = "accchk"
+	uAccDel     = "accdel"
+	uAccDelOK   = "accdely"
+	uAccProxy   = "accpx"
+	uAccCookies = "accck"
 
 	uThreads   = "thrs"
 	uThrView   = "thr"
@@ -129,6 +130,7 @@ func (tb *Bot) setup() {
 	tb.handleBtn(uAccDel, tb.accDelConfirm)
 	tb.handleBtn(uAccDelOK, tb.accDelete)
 	tb.handleBtn(uAccProxy, tb.accProxyPrompt)
+	tb.handleBtn(uAccCookies, tb.accCookiesPrompt)
 
 	tb.handleBtn(uThreads, tb.showThreads)
 	tb.handleBtn(uThrAdd, tb.thrAdd)

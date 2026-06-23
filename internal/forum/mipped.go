@@ -211,7 +211,13 @@ func (c *Mipped) CheckAuth(ctx context.Context, acc Account) error {
 }
 
 // login fetches the login page for a fresh CSRF token, then posts credentials.
+// A cookie-only account (no stored login/password) cannot log in — typically
+// because the login form is CAPTCHA-gated — so it returns ErrAuthFailed asking
+// for fresh cookies.
 func (c *Mipped) login(ctx context.Context, client *http.Client, jar *cookiejar.Jar, creds mippedCreds) error {
+	if creds.Login == "" || creds.Password == "" {
+		return fmt.Errorf("%w: сессия недействительна, обновите cookies (логин по паролю недоступен)", ErrAuthFailed)
+	}
 	body, _, _, err := c.get(ctx, client, mippedBase+"/f/login/")
 	if err != nil {
 		return err
@@ -248,6 +254,9 @@ func (c *Mipped) login(ctx context.Context, client *http.Client, jar *cookiejar.
 	msg := extractLoginError(rb)
 	if msg == "" {
 		msg = "login failed (check credentials)"
+	}
+	if lc := strings.ToLower(msg); strings.Contains(lc, "captcha") || strings.Contains(lc, "капч") {
+		msg += " → используйте 🍪 Cookies в карточке аккаунта"
 	}
 	return fmt.Errorf("%w: %s", ErrAuthFailed, msg)
 }
@@ -342,13 +351,44 @@ func parseMippedRef(ref string) (slug, id string, err error) {
 
 func parseCreds(secret []byte) (mippedCreds, error) {
 	var creds mippedCreds
+	if len(secret) == 0 {
+		return creds, nil // cookie-only account: no login/password stored
+	}
 	if err := json.Unmarshal(secret, &creds); err != nil {
 		return creds, fmt.Errorf("decode mipped credentials: %w", err)
 	}
-	if creds.Login == "" || creds.Password == "" {
-		return creds, fmt.Errorf("mipped credentials incomplete")
-	}
+	// Empty login/password is allowed — such an account works via cookies only;
+	// login() reports a clear auth error if it is ever actually needed.
 	return creds, nil
+}
+
+// CookiesFromHeader parses a browser cookie string ("name=value; name2=value2")
+// into the session blob the Mipped client stores/reuses. Returns the JSON and
+// the number of cookies parsed. Use it to add/refresh a Mipped session when the
+// login form is gated by a CAPTCHA.
+func CookiesFromHeader(header string) ([]byte, int) {
+	var cs []storedCookie
+	for _, part := range strings.Split(header, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		eq := strings.IndexByte(part, '=')
+		if eq <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(part[:eq])
+		val := strings.TrimSpace(part[eq+1:])
+		if name == "" {
+			continue
+		}
+		cs = append(cs, storedCookie{Name: name, Value: val})
+	}
+	if len(cs) == 0 {
+		return nil, 0
+	}
+	b, _ := json.Marshal(cs)
+	return b, len(cs)
 }
 
 func extractCSRF(body []byte) string {

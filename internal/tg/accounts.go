@@ -63,7 +63,8 @@ func (tb *Bot) inputAccLabel(c tele.Context, st *state) error {
 	if st.forum == storage.ForumLolz {
 		st.step = stepAccToken
 		tb.fsm.set(c.Sender().ID, st)
-		return c.Send("Отправьте API-токен Lolzteam.\n<i>Сообщение с токеном будет удалено.</i>", tele.ModeHTML)
+		return c.Send("Отправьте API-токен Lolzteam.\n<i>Токену нужны права (scope) <b>read</b> и <b>post</b> — "+
+			"чтобы читать темы и апать. Сообщение с токеном будет удалено.</i>", tele.ModeHTML)
 	}
 	st.step = stepAccLogin
 	tb.fsm.set(c.Sender().ID, st)
@@ -178,11 +179,18 @@ func (tb *Bot) accountScreen(id int64, note string) (string, *tele.ReplyMarkup, 
 	}
 
 	m := &tele.ReplyMarkup{}
-	m.Inline(
+	rows := []tele.Row{
 		m.Row(m.Data("🔄 Проверить", uAccCheck, itoa(id)), m.Data("✏️ Прокси", uAccProxy, itoa(id))),
+	}
+	// Cookie auth is a Mipped-only escape hatch when the login form is CAPTCHA-gated.
+	if a.Forum == storage.ForumMipped {
+		rows = append(rows, m.Row(m.Data("🍪 Cookies", uAccCookies, itoa(id))))
+	}
+	rows = append(rows,
 		m.Row(m.Data("🗑 Удалить", uAccDel, itoa(id))),
 		m.Row(m.Data("⬅️ Назад", uAccounts)),
 	)
+	m.Inline(rows...)
 	return b.String(), m, nil
 }
 
@@ -244,4 +252,50 @@ func (tb *Bot) inputEditProxy(c tele.Context, st *state) error {
 		return err
 	}
 	return tb.sendAccountByID(c, st.accountID, "✅ Прокси обновлён.")
+}
+
+func (tb *Bot) accCookiesPrompt(c tele.Context) error {
+	id := firstID(c)
+	tb.fsm.set(c.Sender().ID, &state{step: stepEditCookies, accountID: id})
+	m := &tele.ReplyMarkup{}
+	m.Inline(cancelRow(m, uAccView, itoa(id)))
+	text := "Вставьте строку cookies из браузера (DevTools → Application → Cookies, " +
+		"или заголовок <code>Cookie</code>):\n\n" +
+		"<code>xf_user=...; xf_session=...; xf_csrf=...</code>\n\n" +
+		"<i>Так обходится CAPTCHA на форме входа. Сообщение будет удалено.</i>"
+	return tb.show(c, text, m)
+}
+
+func (tb *Bot) inputEditCookies(c tele.Context, st *state) error {
+	raw := c.Text()
+	_ = c.Delete() // cookies are a session secret — remove from chat history
+	sessJSON, n := forum.CookiesFromHeader(raw)
+	if n == 0 {
+		return c.Send("Не удалось разобрать cookies. Формат: <code>name=value; name2=value2</code>", tele.ModeHTML)
+	}
+	enc, err := tb.crypto.Encrypt(sessJSON)
+	if err != nil {
+		return err
+	}
+	tb.fsm.clear(c.Sender().ID)
+	dctx, dcancel := tb.dbCtx()
+	if err := tb.store.SetAccountSession(dctx, st.accountID, enc); err != nil {
+		dcancel()
+		return err
+	}
+	dcancel()
+
+	if err := c.Send(fmt.Sprintf("✅ Cookies сохранены (%d шт.). Проверяю сессию…", n)); err != nil {
+		return err
+	}
+	nctx, ncancel := tb.netCtx()
+	defer ncancel()
+	a, err := tb.store.GetAccount(nctx, st.accountID)
+	if err != nil {
+		return err
+	}
+	if err := tb.sched.CheckAuth(nctx, a); err != nil {
+		return tb.sendAccountByID(c, st.accountID, "🔴 Сессия недействительна: "+esc(err.Error()))
+	}
+	return tb.sendAccountByID(c, st.accountID, "🟢 Сессия активна.")
 }

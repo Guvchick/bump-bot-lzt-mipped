@@ -1,6 +1,7 @@
 package forum
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -82,6 +83,29 @@ func TestParseMippedRef(t *testing.T) {
 				t.Fatalf("got (%q,%q), want (%q,%q)", slug, id, tc.wantSlug, tc.wantID)
 			}
 		})
+	}
+}
+
+func TestCookiesFromHeader(t *testing.T) {
+	// Values can contain '=' (base64) and there can be stray spaces.
+	blob, n := CookiesFromHeader("xf_user=123,abc==; xf_session=deadBEEF==;  xf_csrf=99,ff ")
+	if n != 3 {
+		t.Fatalf("n = %d, want 3", n)
+	}
+	var cs []storedCookie
+	if err := json.Unmarshal(blob, &cs); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range cs {
+		got[c.Name] = c.Value
+	}
+	if got["xf_user"] != "123,abc==" || got["xf_session"] != "deadBEEF==" || got["xf_csrf"] != "99,ff" {
+		t.Fatalf("unexpected cookies: %+v", got)
+	}
+
+	if _, n := CookiesFromHeader("   ;  ; garbage"); n != 0 {
+		t.Fatalf("expected 0 cookies from junk, got %d", n)
 	}
 }
 

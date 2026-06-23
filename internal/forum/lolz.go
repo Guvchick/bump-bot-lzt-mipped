@@ -65,10 +65,14 @@ func (c *Lolz) ThreadStats(ctx context.Context, acc Account, t Thread) (ThreadSt
 		return ThreadStats{}, ErrAuthFailed
 	}
 	if status >= 400 {
-		if msgs, isErr := parseLolzErrors(body); isErr {
-			return ThreadStats{}, fmt.Errorf("lolz thread http %d: %s", status, strings.Join(msgs, "; "))
+		hint := ""
+		if status == http.StatusForbidden {
+			hint = " (токену, вероятно, не хватает scope «read»)"
 		}
-		return ThreadStats{}, fmt.Errorf("lolz thread http %d", status)
+		if msgs, isErr := parseLolzErrors(body); isErr {
+			return ThreadStats{}, fmt.Errorf("lolz thread http %d: %s%s", status, strings.Join(msgs, "; "), hint)
+		}
+		return ThreadStats{}, fmt.Errorf("lolz thread http %d%s", status, hint)
 	}
 
 	var resp lolzThreadResp
