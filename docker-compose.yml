@@ -1,0 +1,24 @@
+services:
+  bot:
+    build: .
+    image: bumpbot
+    container_name: bumpbot
+    restart: unless-stopped
+
+    # Secrets and settings come from .env (see .env.example).
+    env_file: .env
+    # DB_PATH is forced to the mounted volume regardless of what .env says.
+    environment:
+      DB_PATH: /data/bot.db
+
+    # Persist the SQLite database (and its -wal/-shm) on the host.
+    volumes:
+      - ./data:/data
+
+    # Logs go to stdout (slog) → captured by the json-file driver with rotation,
+    # so they never fill the disk. View with: docker compose logs -f bot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

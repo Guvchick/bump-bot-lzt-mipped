@@ -72,14 +72,46 @@ go run ./cmd/bot         # запуск
 
 ### 4. Запустить в Docker
 
+Через **docker compose** (рекомендуется — БД на volume, авто-рестарт, ротация логов):
+
+```bash
+docker compose up -d --build      # собрать и запустить
+docker compose logs -f bot        # смотреть логи
+docker compose restart bot        # перезапуск
+docker compose down               # остановить
+```
+
+`docker-compose.yml` монтирует `./data` под `/data` (там лежит `bot.db`),
+выставляет `restart: unless-stopped` и ограничивает логи (`max-size: 10m`,
+`max-file: 5`), чтобы они не заполнили диск.
+
+Либо вручную через `docker run`:
+
 ```bash
 docker build -t bumpbot .
-docker run -d --name bumpbot \
+docker run -d --name bumpbot --restart unless-stopped \
   --env-file .env \
   -e DB_PATH=/data/bot.db \
   -v "$PWD/data:/data" \
   bumpbot
 ```
+
+## Логи
+
+Бот пишет структурированные логи (`log/slog`) в **stdout** — это родной путь для
+контейнеров:
+
+- **Уровень** задаётся `LOG_LEVEL` (`debug | info | warn | error`). На `debug`
+  видны сетевые ошибки апов и сбор статистики.
+- **Локально:** логи идут прямо в терминал. Для файла — перенаправьте:
+  `go run ./cmd/bot >> bot.log 2>&1`.
+- **В Docker:** `docker compose logs -f bot` (или `docker logs -f bumpbot`).
+  Ротация настроена в `docker-compose.yml` (json-file, 5×10 МБ).
+- **Секреты в логи не пишутся** — токены/пароли/cookies не логируются.
+
+Отдельно есть раздел **🧾 Логи** в самой Telegram-панели — это история апов по
+темам (время, ✅/❌, ответ форума, когда следующий ап), читается из таблицы
+`bump_log`.
 
 ## Использование
 

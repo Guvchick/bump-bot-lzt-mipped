@@ -6,6 +6,9 @@
 *.db-wal
 *.db-shm
 
+# Docker compose data volume
+/data/
+
 # Build artifacts
 /bot
 /bumpbot
