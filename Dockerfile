@@ -12,14 +12,17 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bot ./cmd/bot
 
 # ---- runtime stage ----
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 bot
-USER bot
+# su-exec lets the entrypoint drop from root to 'bot' after fixing /data perms.
+RUN apk add --no-cache ca-certificates tzdata su-exec && adduser -D -u 10001 bot
 WORKDIR /app
 
 COPY --from=build /out/bot /app/bot
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # Persist the SQLite DB on a volume; point DB_PATH at it.
 ENV DB_PATH=/data/bot.db
 VOLUME ["/data"]
 
-ENTRYPOINT ["/app/bot"]
+# Starts as root so the entrypoint can chown /data, then execs the bot as 'bot'.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

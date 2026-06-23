@@ -85,6 +85,14 @@ docker compose down               # остановить
 выставляет `restart: unless-stopped` и ограничивает логи (`max-size: 10m`,
 `max-file: 5`), чтобы они не заполнили диск.
 
+> Контейнер стартует от root, entrypoint выставляет владельца `/data` на
+> непривилегированного пользователя `bot` и только потом запускает бота — поэтому
+> bind-mount работает без ручного `chown`.
+>
+> **Если видите `unable to open database file (14)`** — значит образ старый (без
+> entrypoint). Пересоберите (`docker compose up -d --build`) или разово
+> почините права на хосте: `chown -R 10001:10001 data && docker compose up -d`.
+
 Либо вручную через `docker run`:
 
 ```bash
