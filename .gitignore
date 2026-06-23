@@ -1,0 +1,15 @@
+# Secrets & local config
+.env
+
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# Build artifacts
+/bot
+/bumpbot
+/dist/
+
+# OS / editor noise
+.DS_Store
