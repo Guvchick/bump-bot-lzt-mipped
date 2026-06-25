@@ -6,6 +6,7 @@ package forum
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -65,4 +66,28 @@ type Forum interface {
 	ThreadStats(ctx context.Context, acc Account, t Thread) (ThreadStats, error)
 	// CheckAuth verifies the token/session is alive.
 	CheckAuth(ctx context.Context, acc Account) error
+}
+
+// DiscoveredThread is a thread found by auto-import.
+type DiscoveredThread struct {
+	Ref   string // stored as-is into threads.thread_ref (lolz: id; mipped: full URL)
+	Title string
+}
+
+// ThreadLister is implemented by forums that can enumerate the authenticated
+// account's own threads, so the bot can import them automatically.
+type ThreadLister interface {
+	MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error)
+}
+
+// CanonicalRef returns a stable key for de-duplicating thread references that
+// may be written in different forms (e.g. a Mipped URL with/without trailing
+// slash, or just slug.id).
+func CanonicalRef(forumName, ref string) string {
+	if forumName == "mipped" {
+		if _, id, err := parseMippedRef(ref); err == nil {
+			return "m:" + id
+		}
+	}
+	return strings.TrimSpace(ref)
 }

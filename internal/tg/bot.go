@@ -27,6 +27,13 @@ const (
 	uAccDelOK   = "accdely"
 	uAccProxy   = "accpx"
 	uAccCookies = "accck"
+	uAccImport  = "accimp"
+	uAccThreads = "accthr"
+	uAccAllOn   = "accon"
+	uAccAllOff  = "accoff"
+	uThrQTgl    = "thrqt"
+	uThrPrev    = "thrpv"
+	uThrPrevTgl = "thrpvt"
 
 	uThreads   = "thrs"
 	uThrView   = "thr"
@@ -131,6 +138,13 @@ func (tb *Bot) setup() {
 	tb.handleBtn(uAccDelOK, tb.accDelete)
 	tb.handleBtn(uAccProxy, tb.accProxyPrompt)
 	tb.handleBtn(uAccCookies, tb.accCookiesPrompt)
+	tb.handleBtn(uAccImport, tb.accImport)
+	tb.handleBtn(uAccThreads, tb.accThreads)
+	tb.handleBtn(uAccAllOn, tb.accAllOn)
+	tb.handleBtn(uAccAllOff, tb.accAllOff)
+	tb.handleBtn(uThrQTgl, tb.thrQuickToggle)
+	tb.handleBtn(uThrPrev, tb.thrPreview)
+	tb.handleBtn(uThrPrevTgl, tb.thrPreviewToggle)
 
 	tb.handleBtn(uThreads, tb.showThreads)
 	tb.handleBtn(uThrAdd, tb.thrAdd)
@@ -185,6 +199,11 @@ func (tb *Bot) netCtx() (context.Context, context.CancelFunc) {
 // dbCtx returns a short context for local DB work.
 func (tb *Bot) dbCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
+}
+
+// importCtx allows enough time for a paginated, rate-limited thread import.
+func (tb *Bot) importCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Minute)
 }
 
 // showMain renders the top-level menu.

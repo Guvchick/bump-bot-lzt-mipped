@@ -131,7 +131,9 @@ func (tb *Bot) persistAndCheck(c tele.Context, acc *storage.Account) error {
 	if err := tb.sched.CheckAuth(nctx, acc); err != nil {
 		return tb.sendAccountByID(c, acc.ID, "🔴 Авторизация не прошла: "+esc(err.Error()))
 	}
-	return tb.sendAccountByID(c, acc.ID, "🟢 Авторизация успешна.")
+	_ = c.Send("🟢 Авторизация успешна. Импортирую темы…")
+	note := "🟢 Авторизация успешна.\n" + tb.runImport(acc)
+	return tb.sendAccountThreads(c, acc.ID, note)
 }
 
 func (tb *Bot) accView(c tele.Context) error {
@@ -186,6 +188,10 @@ func (tb *Bot) accountScreen(id int64, note string) (string, *tele.ReplyMarkup, 
 	if a.Forum == storage.ForumMipped {
 		rows = append(rows, m.Row(m.Data("🍪 Cookies", uAccCookies, itoa(id))))
 	}
+	rows = append(rows, m.Row(
+		m.Data("📥 Импорт тем", uAccImport, itoa(id)),
+		m.Data("📂 Темы аккаунта", uAccThreads, itoa(id)),
+	))
 	rows = append(rows,
 		m.Row(m.Data("🗑 Удалить", uAccDel, itoa(id))),
 		m.Row(m.Data("⬅️ Назад", uAccounts)),
@@ -297,5 +303,7 @@ func (tb *Bot) inputEditCookies(c tele.Context, st *state) error {
 	if err := tb.sched.CheckAuth(nctx, a); err != nil {
 		return tb.sendAccountByID(c, st.accountID, "🔴 Сессия недействительна: "+esc(err.Error()))
 	}
-	return tb.sendAccountByID(c, st.accountID, "🟢 Сессия активна.")
+	_ = c.Send("🟢 Сессия активна. Импортирую темы…")
+	note := "🟢 Сессия активна.\n" + tb.runImport(a)
+	return tb.sendAccountThreads(c, st.accountID, note)
 }

@@ -304,6 +304,60 @@ func (s *Scheduler) CheckAuth(ctx context.Context, a *storage.Account) error {
 	return err
 }
 
+// ImportThreads discovers the account's own threads and inserts the new ones,
+// disabled by default (the user opts each into auto-bump via the panel).
+// Returns added (newly inserted) and found (total discovered).
+func (s *Scheduler) ImportThreads(ctx context.Context, a *storage.Account) (added, found int, err error) {
+	lister, ok := s.forums[a.Forum].(forum.ThreadLister)
+	if !ok {
+		return 0, 0, fmt.Errorf("импорт не поддерживается для форума %q", a.Forum)
+	}
+	fa, err := s.forumAccount(a)
+	if err != nil {
+		return 0, 0, err
+	}
+	s.pace(ctx)
+	discovered, err := lister.MyThreads(ctx, fa)
+	if err != nil {
+		// Don't flip account status here: a Lolz list 403 usually just means the
+		// token lacks the "read" scope even though CheckAuth (basic) passed.
+		return 0, 0, err
+	}
+	found = len(discovered)
+
+	existing, err := s.store.ListThreadsByAccount(ctx, a.ID)
+	if err != nil {
+		return 0, found, err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, t := range existing {
+		have[forum.CanonicalRef(a.Forum, t.ThreadRef)] = true
+	}
+
+	interval := s.DefaultInterval(a.Forum)
+	for _, d := range discovered {
+		key := forum.CanonicalRef(a.Forum, d.Ref)
+		if have[key] {
+			continue
+		}
+		have[key] = true
+		t := &storage.Thread{
+			AccountID:   a.ID,
+			Forum:       a.Forum,
+			ThreadRef:   d.Ref,
+			Title:       d.Title,
+			IntervalSec: interval,
+			Enabled:     false, // opt-in via panel
+		}
+		if cerr := s.store.CreateThread(ctx, t); cerr != nil {
+			s.log.Error("import: create thread", "account", a.ID, "err", cerr)
+			continue
+		}
+		added++
+	}
+	return added, found, nil
+}
+
 // FetchStats returns live thread stats (used when adding a thread / viewing it).
 func (s *Scheduler) FetchStats(ctx context.Context, a *storage.Account, t *storage.Thread) (forum.ThreadStats, error) {
 	f := s.forums[a.Forum]

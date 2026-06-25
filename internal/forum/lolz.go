@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -121,6 +122,85 @@ func (c *Lolz) CheckAuth(ctx context.Context, acc Account) error {
 	return nil
 }
 
+var _ ThreadLister = (*Lolz)(nil)
+
+// MyThreads enumerates threads created by the authenticated user via
+// GET /users/me (for the id) then paginated GET /threads?creator_user_id=.
+// Requires the token's "read" scope.
+func (c *Lolz) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error) {
+	uid, err := c.userID(ctx, acc)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []DiscoveredThread
+	seen := make(map[string]bool)
+	for page := 1; page <= 50; page++ {
+		path := fmt.Sprintf("/threads?creator_user_id=%s&page=%d", url.QueryEscape(uid), page)
+		body, status, err := c.do(ctx, acc, http.MethodGet, path, nil)
+		if err != nil {
+			return out, err
+		}
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			if len(out) > 0 {
+				return out, nil
+			}
+			return nil, fmt.Errorf("%w (или токену не хватает scope «read»)", ErrAuthFailed)
+		}
+		if status >= 400 {
+			break
+		}
+		var r lolzThreadsResp
+		if json.Unmarshal(body, &r) != nil || len(r.Threads) == 0 {
+			break
+		}
+		for _, th := range r.Threads {
+			ref := firstNonEmpty(th.ThreadID.String(), th.ID.String())
+			if ref == "" || ref == "0" || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			out = append(out, DiscoveredThread{Ref: ref, Title: firstNonEmpty(th.ThreadTitle, th.Title)})
+		}
+		// Stop when pagination info says we're on the last page; if there's no
+		// pagination info, stop after the first page to avoid an unbounded loop.
+		if r.Links.Pages > 0 {
+			if page >= r.Links.Pages {
+				break
+			}
+		} else if r.Links.Next == "" {
+			break
+		}
+	}
+	return out, nil
+}
+
+// userID resolves the authenticated user's numeric id from GET /users/me.
+func (c *Lolz) userID(ctx context.Context, acc Account) (string, error) {
+	body, status, err := c.do(ctx, acc, http.MethodGet, "/users/me", nil)
+	if err != nil {
+		return "", err
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return "", ErrAuthFailed
+	}
+	if status >= 400 {
+		return "", fmt.Errorf("lolz users/me http %d", status)
+	}
+	var r struct {
+		User struct {
+			UserID json.Number `json:"user_id"`
+			ID     json.Number `json:"id"`
+		} `json:"user"`
+		UserID json.Number `json:"user_id"`
+	}
+	_ = json.Unmarshal(body, &r)
+	if id := firstNonEmpty(r.User.UserID.String(), r.User.ID.String(), r.UserID.String()); id != "" {
+		return id, nil
+	}
+	return "", fmt.Errorf("не удалось определить user_id из /users/me")
+}
+
 // do performs an authenticated request and returns body, status, and a non-nil
 // error only on transport failures.
 func (c *Lolz) do(ctx context.Context, acc Account, method, path string, body io.Reader) ([]byte, int, error) {
@@ -164,6 +244,22 @@ type lolzThread struct {
 
 type lolzThreadResp struct {
 	Thread *lolzThread `json:"thread"`
+}
+
+// lolzListThread is a row from GET /threads (lighter than lolzThread).
+type lolzListThread struct {
+	ThreadID    json.Number `json:"thread_id"`
+	ID          json.Number `json:"id"`
+	ThreadTitle string      `json:"thread_title"`
+	Title       string      `json:"title"`
+}
+
+type lolzThreadsResp struct {
+	Threads []lolzListThread `json:"threads"`
+	Links   struct {
+		Pages int    `json:"pages"`
+		Next  string `json:"next"`
+	} `json:"links"`
 }
 
 // parseLolzErrors extracts XenForo-style error messages. Handles `errors` as an

@@ -31,6 +31,13 @@ var csrfRe = regexp.MustCompile(`(?:"csrf"\s*:\s*"|XF\.config\.csrf\s*=\s*['"])(
 // a full URL, a "/f/threads/..." path, or a bare "slug.12345".
 var mippedRefRe = regexp.MustCompile(`(?:threads/)?([^/?#]+?)\.(\d+)/?(?:[?#].*)?$`)
 
+// mippedHrefRe pulls slug+id out of any thread href (anywhere in the string),
+// e.g. "/f/threads/some-title.12345/" or ".../12345/post-99".
+var mippedHrefRe = regexp.MustCompile(`/threads/([^/?#"]+?)\.(\d+)`)
+
+// mippedMemberRe pulls the numeric member id out of a "/members/name.123/" link.
+var mippedMemberRe = regexp.MustCompile(`/members/[^/?#"]*?\.(\d+)`)
+
 // Mipped drives the Mipped forum through a logged-in browser-like session.
 type Mipped struct {
 	timeout time.Duration
@@ -208,6 +215,102 @@ func (c *Mipped) CheckAuth(ctx context.Context, acc Account) error {
 	}
 	c.persist(ctx, acc, jar)
 	return nil
+}
+
+var _ ThreadLister = (*Mipped)(nil)
+
+// MyThreads scrapes the member's "recent content" pages for their threads.
+// Mipped has no public API, so this is best effort and may need selector tweaks
+// if the forum theme differs.
+func (c *Mipped) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error) {
+	client, jar, err := c.newSession(acc)
+	if err != nil {
+		return nil, err
+	}
+	body, finalURL, _, err := c.get(ctx, client, mippedBase+"/f/account/")
+	if err != nil {
+		return nil, err
+	}
+	if isLoginRedirect(finalURL) || isLoginHTML(body) {
+		creds, _ := parseCreds(acc.Secret)
+		if lerr := c.login(ctx, client, jar, creds); lerr != nil {
+			return nil, lerr
+		}
+		c.persist(ctx, acc, jar)
+		body, _, _, _ = c.get(ctx, client, mippedBase+"/f/account/")
+	}
+
+	memberID := extractMemberID(body)
+	if memberID == "" {
+		return nil, fmt.Errorf("не удалось определить ID пользователя Mipped")
+	}
+
+	var out []DiscoveredThread
+	seen := make(map[string]bool)
+	for page := 1; page <= 20; page++ {
+		u := fmt.Sprintf("%s/f/members/%s/recent-content?type=thread&page=%d", mippedBase, memberID, page)
+		pb, _, status, err := c.get(ctx, client, u)
+		if err != nil {
+			return out, err
+		}
+		if status >= 400 {
+			break
+		}
+		if scrapeThreadLinks(pb, seen, &out) == 0 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// extractMemberID finds the logged-in user's numeric member id on a page.
+func extractMemberID(body []byte) string {
+	if doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body)); err == nil {
+		for _, sel := range []string{"a.p-navgroup-link--user", ".p-navgroup--member a[href*='/members/']"} {
+			if href, ok := doc.Find(sel).First().Attr("href"); ok {
+				if m := mippedMemberRe.FindStringSubmatch(href); m != nil {
+					return m[1]
+				}
+			}
+		}
+	}
+	if m := mippedMemberRe.FindSubmatch(body); m != nil {
+		return string(m[1])
+	}
+	return ""
+}
+
+// scrapeThreadLinks collects new thread links from a recent-content page,
+// returning how many were added.
+func scrapeThreadLinks(body []byte, seen map[string]bool, out *[]DiscoveredThread) int {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return 0
+	}
+	sel := doc.Find(".contentRow-title a[href*='/threads/'], .structItem-title a[href*='/threads/']")
+	if sel.Length() == 0 {
+		sel = doc.Find("a[href*='/threads/']")
+	}
+	added := 0
+	sel.Each(func(_ int, s *goquery.Selection) {
+		href, _ := s.Attr("href")
+		m := mippedHrefRe.FindStringSubmatch(href)
+		if m == nil {
+			return
+		}
+		slug, id := m[1], m[2]
+		if seen[id] {
+			return
+		}
+		title := strings.TrimSpace(s.Text())
+		if len([]rune(title)) < 2 { // skip count/icon links
+			return
+		}
+		seen[id] = true
+		*out = append(*out, DiscoveredThread{Ref: mippedBase + "/f/threads/" + slug + "." + id + "/", Title: title})
+		added++
+	})
+	return added
 }
 
 // login fetches the login page for a fresh CSRF token, then posts credentials.
