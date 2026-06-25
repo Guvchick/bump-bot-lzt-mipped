@@ -19,6 +19,7 @@ var settingCodes = map[string]struct {
 	"ji": {storage.KeyJitterSec, "Джиттер, сек"},
 	"sp": {storage.KeyStatsPollSec, "Период статистики, сек"},
 	"rd": {storage.KeyRequestDelayMS, "Задержка между запросами, мс"},
+	"ia": {storage.KeyImportMaxAgeDays, "Импорт Lolz: не старше N дней (0 = все)"},
 }
 
 func (tb *Bot) showSettings(c tele.Context) error {
@@ -30,6 +31,7 @@ func (tb *Bot) showSettings(c tele.Context) error {
 	fmt.Fprintf(&b, "Джиттер: <b>%d</b> сек\n", s.JitterSec)
 	fmt.Fprintf(&b, "Период статистики: <b>%d</b> сек\n", s.StatsPollSec)
 	fmt.Fprintf(&b, "Задержка запросов: <b>%d</b> мс\n", s.RequestDelayMS)
+	fmt.Fprintf(&b, "Импорт Lolz: не старше <b>%d</b> дн (0 = все)\n", s.ImportMaxAgeDays)
 	fmt.Fprintf(&b, "Уведомления: <b>%s</b>\n", onOff(s.Notifications))
 
 	notifLabel := "🔔 Уведомления: выкл"
@@ -41,6 +43,7 @@ func (tb *Bot) showSettings(c tele.Context) error {
 		m.Row(m.Data("Интервал Mipped", uSetEdit, "di"), m.Data("Интервал Lolz", uSetEdit, "li")),
 		m.Row(m.Data("Джиттер", uSetEdit, "ji"), m.Data("Период стат.", uSetEdit, "sp")),
 		m.Row(m.Data("Задержка запросов", uSetEdit, "rd")),
+		m.Row(m.Data("Импорт Lolz: возраст тем", uSetEdit, "ia")),
 		m.Row(m.Data(notifLabel, uNotifTgl)),
 		m.Row(m.Data("⬅️ Назад", uMenu)),
 	)

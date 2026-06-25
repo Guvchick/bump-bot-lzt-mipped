@@ -28,7 +28,8 @@ const (
 	KeyJitterSec          = "jitter_sec"
 	KeyStatsPollSec       = "stats_poll_sec"
 	KeyRequestDelayMS     = "request_delay_ms"
-	KeyNotifications      = "notifications" // "1"/"0"
+	KeyNotifications      = "notifications"       // "1"/"0"
+	KeyImportMaxAgeDays   = "import_max_age_days" // 0 = no age limit (lolz import)
 )
 
 // Account is a forum account (lolz token or mipped credentials).

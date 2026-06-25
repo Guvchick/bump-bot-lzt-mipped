@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -126,20 +127,34 @@ var _ ThreadLister = (*Lolz)(nil)
 
 // MyThreads enumerates threads created by the authenticated user via
 // GET /users/me (for the id) then paginated GET /threads?creator_user_id=.
-// Requires the token's "read" scope.
-func (c *Lolz) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error) {
+// Requires the token's "read" scope. With opts.MaxAge > 0, threads created
+// longer ago than that are skipped (results are ordered newest-first so old
+// pages are skipped early).
+func (c *Lolz) MyThreads(ctx context.Context, acc Account, opts ListOptions) ([]DiscoveredThread, error) {
 	uid, err := c.userID(ctx, acc)
 	if err != nil {
 		return nil, err
 	}
 
+	var cutoff time.Time
+	if opts.MaxAge > 0 {
+		cutoff = time.Now().Add(-opts.MaxAge)
+	}
+
 	var out []DiscoveredThread
 	seen := make(map[string]bool)
+	useOrder := true // order by create date desc; fall back if the API rejects it
 	for page := 1; page <= 50; page++ {
-		path := fmt.Sprintf("/threads?creator_user_id=%s&page=%d", url.QueryEscape(uid), page)
-		body, status, err := c.do(ctx, acc, http.MethodGet, path, nil)
+		r, status, err := c.fetchThreadsPage(ctx, acc, uid, page, useOrder)
 		if err != nil {
 			return out, err
+		}
+		if status == http.StatusBadRequest && useOrder {
+			useOrder = false // unsupported order param — retry this page without it
+			r, status, err = c.fetchThreadsPage(ctx, acc, uid, page, useOrder)
+			if err != nil {
+				return out, err
+			}
 		}
 		if status == http.StatusUnauthorized || status == http.StatusForbidden {
 			if len(out) > 0 {
@@ -147,23 +162,31 @@ func (c *Lolz) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, 
 			}
 			return nil, fmt.Errorf("%w (или токену не хватает scope «read»)", ErrAuthFailed)
 		}
-		if status >= 400 {
+		if status >= 400 || len(r.Threads) == 0 {
 			break
 		}
-		var r lolzThreadsResp
-		if json.Unmarshal(body, &r) != nil || len(r.Threads) == 0 {
-			break
-		}
+
+		pageHadFresh := false
 		for _, th := range r.Threads {
 			ref := firstNonEmpty(th.ThreadID.String(), th.ID.String())
 			if ref == "" || ref == "0" || seen[ref] {
 				continue
 			}
+			if !cutoff.IsZero() {
+				if ts, err := th.ThreadCreateDate.Int64(); err == nil && ts > 0 && time.Unix(ts, 0).Before(cutoff) {
+					continue // too old
+				}
+			}
 			seen[ref] = true
+			pageHadFresh = true
 			out = append(out, DiscoveredThread{Ref: ref, Title: firstNonEmpty(th.ThreadTitle, th.Title)})
 		}
-		// Stop when pagination info says we're on the last page; if there's no
-		// pagination info, stop after the first page to avoid an unbounded loop.
+
+		// Newest-first ordering means once a whole page is older than the cutoff,
+		// everything after it is older too.
+		if !cutoff.IsZero() && useOrder && !pageHadFresh {
+			break
+		}
 		if r.Links.Pages > 0 {
 			if page >= r.Links.Pages {
 				break
@@ -173,6 +196,26 @@ func (c *Lolz) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, 
 		}
 	}
 	return out, nil
+}
+
+// fetchThreadsPage gets one page of the user's threads.
+func (c *Lolz) fetchThreadsPage(ctx context.Context, acc Account, uid string, page int, ordered bool) (lolzThreadsResp, int, error) {
+	q := url.Values{}
+	q.Set("creator_user_id", uid)
+	q.Set("page", strconv.Itoa(page))
+	if ordered {
+		q.Set("order", "thread_create_date")
+		q.Set("direction", "desc")
+	}
+	body, status, err := c.do(ctx, acc, http.MethodGet, "/threads?"+q.Encode(), nil)
+	if err != nil {
+		return lolzThreadsResp{}, status, err
+	}
+	var r lolzThreadsResp
+	if status < 400 {
+		_ = json.Unmarshal(body, &r)
+	}
+	return r, status, nil
 }
 
 // userID resolves the authenticated user's numeric id from GET /users/me.
@@ -248,10 +291,11 @@ type lolzThreadResp struct {
 
 // lolzListThread is a row from GET /threads (lighter than lolzThread).
 type lolzListThread struct {
-	ThreadID    json.Number `json:"thread_id"`
-	ID          json.Number `json:"id"`
-	ThreadTitle string      `json:"thread_title"`
-	Title       string      `json:"title"`
+	ThreadID         json.Number `json:"thread_id"`
+	ID               json.Number `json:"id"`
+	ThreadTitle      string      `json:"thread_title"`
+	Title            string      `json:"title"`
+	ThreadCreateDate json.Number `json:"thread_create_date"` // unix seconds
 }
 
 type lolzThreadsResp struct {

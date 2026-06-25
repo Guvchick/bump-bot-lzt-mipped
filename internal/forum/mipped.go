@@ -221,8 +221,10 @@ var _ ThreadLister = (*Mipped)(nil)
 
 // MyThreads scrapes the member's "recent content" pages for their threads.
 // Mipped has no public API, so this is best effort and may need selector tweaks
-// if the forum theme differs.
-func (c *Mipped) MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error) {
+// if the forum theme differs. opts.MaxAge is ignored — the scrape exposes no
+// create date, but recent-content is already ordered by recency.
+func (c *Mipped) MyThreads(ctx context.Context, acc Account, opts ListOptions) ([]DiscoveredThread, error) {
+	_ = opts
 	client, jar, err := c.newSession(acc)
 	if err != nil {
 		return nil, err

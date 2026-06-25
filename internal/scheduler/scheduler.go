@@ -36,6 +36,7 @@ type Settings struct {
 	JitterSec          int
 	StatsPollSec       int
 	RequestDelayMS     int
+	ImportMaxAgeDays   int // 0 = import threads of any age (lolz)
 	Notifications      bool
 }
 
@@ -77,6 +78,7 @@ func New(store storage.Storage, cr *crypto.Crypto, forums map[string]forum.Forum
 			JitterSec:          cfg.JitterSec,
 			StatsPollSec:       cfg.StatsPollSec,
 			RequestDelayMS:     cfg.RequestDelayMS,
+			ImportMaxAgeDays:   365,
 			Notifications:      true,
 		},
 	}
@@ -116,6 +118,7 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 		JitterSec:          get(storage.KeyJitterSec, s.cfg.JitterSec),
 		StatsPollSec:       get(storage.KeyStatsPollSec, s.cfg.StatsPollSec),
 		RequestDelayMS:     get(storage.KeyRequestDelayMS, s.cfg.RequestDelayMS),
+		ImportMaxAgeDays:   get(storage.KeyImportMaxAgeDays, 365),
 		Notifications:      all[storage.KeyNotifications] != "0",
 	}
 	s.setMu.Lock()
@@ -133,6 +136,7 @@ func (s *Scheduler) SeedSettings(ctx context.Context) error {
 		storage.KeyJitterSec:          strconv.Itoa(s.cfg.JitterSec),
 		storage.KeyStatsPollSec:       strconv.Itoa(s.cfg.StatsPollSec),
 		storage.KeyRequestDelayMS:     strconv.Itoa(s.cfg.RequestDelayMS),
+		storage.KeyImportMaxAgeDays:   "365",
 		storage.KeyNotifications:      "1",
 	}
 	for k, v := range defaults {
@@ -316,8 +320,12 @@ func (s *Scheduler) ImportThreads(ctx context.Context, a *storage.Account) (adde
 	if err != nil {
 		return 0, 0, err
 	}
+	opts := forum.ListOptions{}
+	if days := s.CurrentSettings().ImportMaxAgeDays; days > 0 {
+		opts.MaxAge = time.Duration(days) * 24 * time.Hour
+	}
 	s.pace(ctx)
-	discovered, err := lister.MyThreads(ctx, fa)
+	discovered, err := lister.MyThreads(ctx, fa, opts)
 	if err != nil {
 		// Don't flip account status here: a Lolz list 403 usually just means the
 		// token lacks the "read" scope even though CheckAuth (basic) passed.

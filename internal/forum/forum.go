@@ -74,10 +74,17 @@ type DiscoveredThread struct {
 	Title string
 }
 
+// ListOptions tunes auto-import.
+type ListOptions struct {
+	// MaxAge skips threads created longer ago than this. Zero means no age limit.
+	// Only forums that expose a create date (lolz) honour it.
+	MaxAge time.Duration
+}
+
 // ThreadLister is implemented by forums that can enumerate the authenticated
 // account's own threads, so the bot can import them automatically.
 type ThreadLister interface {
-	MyThreads(ctx context.Context, acc Account) ([]DiscoveredThread, error)
+	MyThreads(ctx context.Context, acc Account, opts ListOptions) ([]DiscoveredThread, error)
 }
 
 // CanonicalRef returns a stable key for de-duplicating thread references that
